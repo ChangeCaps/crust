@@ -1,20 +1,7 @@
-#[derive(Debug, PartialEq)]
-pub struct Token {
-	pub line: usize,
-	pub column: usize,
-	pub offset: usize,
-	pub ty: TokenType,
-}
+use std::borrow::Cow;
 
-impl std::fmt::Display for Token {
-	#[inline]
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "'{}' at line: {}, column: {}", self.ty, self.line, self.column)	
-	}
-}
-
-#[derive(Debug, PartialEq)]
-pub enum TokenType {
+#[derive(Clone, Debug, PartialEq)]
+pub enum Token {
     /// Identifier and sequence of text that isn't a keyword.
     Ident(String),
     /// Integer, see [`IntegerFormat`].
@@ -27,7 +14,7 @@ pub enum TokenType {
     Eof,
 }
 
-impl std::fmt::Display for TokenType {
+impl std::fmt::Display for Token {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -35,7 +22,13 @@ impl std::fmt::Display for TokenType {
             Self::Integer(int, format) => match format {
                 IntegerFormat::Binary => write!(f, "{:b}", int),
                 IntegerFormat::Decimal => write!(f, "{}", int),
-                IntegerFormat::Hexadecimal => write!(f, "{:x}", int),
+                IntegerFormat::Hexadecimal => {
+                    if *int < 0 {
+                        write!(f, "-{:X}", int.abs())
+                    } else {
+                        write!(f, "{:X}", int.abs())
+                    }
+                }
             },
             Self::Symbol(symbol) => write!(f, "{}", symbol),
             Self::Keyword(keyword) => write!(f, "{}", keyword),
@@ -44,7 +37,50 @@ impl std::fmt::Display for TokenType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+impl Token {
+    #[inline]
+    pub fn ty(&self) -> TokenType {
+        match self {
+            Self::Ident(ident) => TokenType::SpecificIdent(ident.clone().into()),
+            Self::Integer(int, _format) => TokenType::SpecificInteger(*int),
+            Self::Symbol(symbol) => TokenType::SpecificSymbol(*symbol),
+            Self::Keyword(keyword) => TokenType::SpecificKeyword(*keyword),
+            Self::Eof => TokenType::Eof,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TokenType {
+    Ident,
+    SpecificIdent(Cow<'static, str>),
+    Integer,
+    SpecificInteger(i64),
+    Symbol,
+    SpecificSymbol(Symbol),
+    Keyword,
+    SpecificKeyword(Keyword),
+    Eof,
+}
+
+impl std::fmt::Display for TokenType {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ident => write!(f, "{{ident}}"),
+            Self::SpecificIdent(ident) => write!(f, "{}", ident),
+            Self::Integer => write!(f, "{{integer}}"),
+            Self::SpecificInteger(int) => write!(f, "{}", int),
+            Self::Symbol => write!(f, "{{symbol}}"),
+            Self::SpecificSymbol(symbol) => write!(f, "{}", symbol),
+            Self::Keyword => write!(f, "{{keyword}}"),
+            Self::SpecificKeyword(keyword) => write!(f, "{}", keyword),
+            Self::Eof => write!(f, "{{EOF}}"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IntegerFormat {
     Binary,
     Decimal,
@@ -52,15 +88,17 @@ pub enum IntegerFormat {
 }
 
 /// Delimiters '(', '{' and '['.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Delim {
     Paren,
     Brace,
     Bracket,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Symbol {
+    Comma,
+    ColonColon,
     Colon,
     SemiColon,
     EqEq,
@@ -89,7 +127,9 @@ impl std::fmt::Display for Symbol {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Colon => write!(f, ","),
+            Self::Comma => write!(f, ","),
+            Self::ColonColon => write!(f, "::"),
+            Self::Colon => write!(f, ":"),
             Self::SemiColon => write!(f, ";"),
             Self::EqEq => write!(f, "=="),
             Self::Eq => write!(f, "="),
@@ -119,7 +159,7 @@ impl std::fmt::Display for Symbol {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Keyword {
     Let,
 }

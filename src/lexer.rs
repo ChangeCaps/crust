@@ -1,14 +1,17 @@
 use thiserror::Error;
 
-use crate::token::{Delim, Keyword, Symbol, Token, TokenType};
+use crate::{
+    span::{Span, Spanned},
+    token::{Delim, IntegerFormat, Keyword, Symbol, Token},
+};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum LexerError {
-    #[error("expected token '{expected}' but found {found}")]
-    MissingExpectedSymbol { expected: TokenType, found: Token },
-
     #[error("undefined token '{0}'")]
     Undefined(String),
+
+    #[error("floating point number with radix other than '10'")]
+    InvalidFloatRadix,
 
     #[error("unexpected eof")]
     Eof,
@@ -16,13 +19,7 @@ pub enum LexerError {
 
 pub type LexerResult<T> = Result<T, LexerError>;
 
-struct PeakedToken {
-	line: usize,
-	column: usize,
-    offset: usize,
-    token: Token,
-}
-
+#[derive(Clone, Debug)]
 pub struct Lexer<'a> {
     pub line: usize,
     pub column: usize,
@@ -37,7 +34,7 @@ impl<'a> Lexer<'a> {
         Self {
             line: 1,
             column: 1,
-            offset: 0,	
+            offset: 0,
             source,
         }
     }
@@ -111,8 +108,86 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex_keyword(&mut self) -> LexerResult<Option<Keyword>> {
-        let r = self.remaining().ok_or_else(|| LexerError::Eof)?;
+    fn parse_number(&mut self) -> LexerResult<Option<Token>> {
+        let mut lexer = self.clone();
+
+        let negative = if let Some(c) = lexer.peek_char() {
+            if c == '+' {
+                lexer.consume_char();
+
+                false
+            } else if c == '-' {
+                lexer.consume_char();
+
+                true
+            } else {
+                false
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let mut radix = 10;
+
+        if let Some(remaining) = lexer.remaining() {
+            if remaining.starts_with("0x") {
+                lexer.consume_chars(2)?;
+
+                radix = 16;
+            } else if remaining.starts_with("0b") {
+                lexer.consume_chars(2)?;
+
+                radix = 2;
+            }
+        }
+
+        let first = lexer.peek_chars_while(|c| c.is_digit(radix));
+
+        if first.len() > 0 {
+            match self.peek_char() {
+                Some('.') => {
+                    if radix != 10 {
+                        return Err(LexerError::InvalidFloatRadix);
+                    }
+
+                    let last = lexer.peek_chars_while(|c| c.is_digit(10));
+
+                    let float = last.parse::<f32>().unwrap();
+
+                    lexer.consume_chars(first.len() + 1 + last.len())?;
+
+                    todo!()
+                }
+                _ => {
+                    lexer.consume_chars(first.len())?;
+
+                    // NOTE: will panic if 'first' represents an integer unrepresentable by a 64 bit
+                    // integer
+                    let mut int = i64::from_str_radix(&first, radix).unwrap();
+
+                    if negative {
+                        int = -int;
+                    }
+
+                    *self = lexer;
+
+                    let format = match radix {
+                        2 => IntegerFormat::Binary,
+                        10 => IntegerFormat::Decimal,
+                        16 => IntegerFormat::Hexadecimal,
+                        _ => unreachable!(),
+                    };
+
+                    Ok(Some(Token::Integer(int, format)))
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn parse_keyword(&mut self) -> Option<Keyword> {
+        let r = self.remaining()?;
 
         macro_rules! keyword {
 			{
@@ -122,8 +197,8 @@ impl<'a> Lexer<'a> {
 			} => {
 				$(
 					if r.starts_with($pat) {
-						self.consume_chars($pat.len())?;
-						return Ok(Some($keyword));
+						self.consume_chars($pat.len()).unwrap();
+						return Some($keyword);
 					}
 				)*
 			}
@@ -133,11 +208,11 @@ impl<'a> Lexer<'a> {
             "let" => Keyword::Let,
         }
 
-        Ok(None)
+        None
     }
 
-    fn lex_symbol(&mut self) -> LexerResult<Option<Symbol>> {
-        let r = self.remaining().ok_or_else(|| LexerError::Eof)?;
+    fn parse_symbol(&mut self) -> Option<Symbol> {
+        let r = self.remaining()?;
 
         macro_rules! symbol {
 			{
@@ -147,15 +222,17 @@ impl<'a> Lexer<'a> {
 			} => {
 				$(
 					if r.starts_with($pat) {
-						self.consume_chars($pat.len())?;
-						return Ok(Some($symbol));
+						self.consume_chars($pat.len()).unwrap();
+						return Some($symbol);
 					}
 				)*
 			}
 		}
 
         symbol! {
-            "," => Symbol::Colon,
+            "," => Symbol::Comma,
+            "::" => Symbol::ColonColon,
+            ":" => Symbol::Colon,
             ";" => Symbol::SemiColon,
             "==" => Symbol::EqEq,
             "=" => Symbol::Eq,
@@ -183,69 +260,102 @@ impl<'a> Lexer<'a> {
             "}" => Symbol::Close(Delim::Brace),
         }
 
-        Ok(None)
-    }	
+        None
+    }
 
-    pub fn next_token(&mut self) -> LexerResult<Token> {
+    pub fn next_token(&mut self) -> LexerResult<Spanned<Token>> {
         self.consume_whitespace_chars();
 
-		let line = self.line;
-		let column = self.column;
-		let offset = self.offset;
+        let line = self.line;
+        let column = self.column;
+        let offset = self.offset;
 
-        if let Some(keyword) = self.lex_keyword()? {
-            return Ok(Token {
-				line,
-				column,
-				offset,
-				ty: TokenType::Keyword(keyword),
-			});
+        if self.remaining().is_none() {
+            return Ok(Spanned {
+                span: Span {
+                    line,
+                    column,
+                    offset,
+                    length: 0,
+                },
+                value: Token::Eof,
+            });
         }
 
-        if let Some(symbol) = self.lex_symbol()? {
-            return Ok(Token {
-				line,
-				column,
-				offset,
-				ty: TokenType::Symbol(symbol),
-			});
+        if let Some(number) = self.parse_number()? {
+            return Ok(Spanned {
+                span: Span {
+                    line,
+                    column,
+                    offset,
+                    length: self.offset - offset,
+                },
+                value: number,
+            });
+        }
+
+        if let Some(keyword) = self.parse_keyword() {
+            return Ok(Spanned {
+                span: Span {
+                    line,
+                    column,
+                    offset,
+                    length: self.offset - offset,
+                },
+                value: Token::Keyword(keyword),
+            });
+        }
+
+        if let Some(symbol) = self.parse_symbol() {
+            return Ok(Spanned {
+                span: Span {
+                    line,
+                    column,
+                    offset,
+                    length: self.offset - offset,
+                },
+                value: Token::Symbol(symbol),
+            });
         }
 
         let ident = self.peek_chars_while(|c| c.is_alphanumeric() || c == '_');
 
-		self.consume_chars(ident.len())?;
+        self.consume_chars(ident.len())?;
 
-		if is_valid_ident(&ident) {
-			Ok(Token {
-				line,
-				column,
-				offset,
-				ty: TokenType::Ident(ident),
-			})
-		} else {
-			Err(LexerError::Undefined(ident))
-		}
+        if is_valid_ident(&ident) {
+            return Ok(Spanned {
+                span: Span {
+                    line,
+                    column,
+                    offset,
+                    length: self.offset - offset,
+                },
+                value: Token::Ident(ident),
+            });
+        } else {
+            Err(LexerError::Undefined(ident))
+        }
     }
 }
 
 fn is_valid_ident(s: &str) -> bool {
-	let mut chars = s.chars();
+    let mut chars = s.chars();
 
-	if let Some(c) = chars.next() {
-		if !(c.is_alphabetic() || c == '_') {
-			return false;
-		}
+    if let Some(c) = chars.next() {
+        if !(c.is_alphabetic() || c == '_') {
+            return false;
+        }
 
-		for c in chars {
-			if !(c.is_alphanumeric() || c == '_') {
-				return false;
-			}
-		}
+        for c in chars {
+            if !(c.is_alphanumeric() || c == '_') {
+                return false;
+            }
+        }
 
-		true
-	} else {
-		false
-	}
+        true
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -254,34 +364,49 @@ mod tests {
 
     #[test]
     fn symbols() {
-        let symbols = r#", ; == = && & || | += -= *= /= + - * / >= <= > < ( { [ ) } ]"#;
+        let symbols = r#", :: : ; == = && & || | += -= *= /= + - * / >= <= > < ( { [ ) } ]"#;
 
         let mut lexer = Lexer::new(symbols);
 
         macro_rules! assert_lex {
 			{$($sym:expr),*} => {
 				$(
-					assert_eq!(lexer.next_token().unwrap().ty.to_string(), $sym);
+					assert_eq!(lexer.next_token().unwrap().value.to_string(), $sym);
 				)*
 			}
 		}
 
         assert_lex!(
-            ",", ";", "==", "=", "&&", "&", "||", "|", "+=", "-=", "*=", "/=", "+", "-", "*", "/",
-            ">=", "<=", ">", "<", "(", "{", "[", ")", "}", "]"
-        ); 
+            ",", "::", ":", ";", "==", "=", "&&", "&", "||", "|", "+=", "-=", "*=", "/=", "+", "-",
+            "*", "/", ">=", "<=", ">", "<", "(", "{", "[", ")", "}", "]"
+        );
     }
 
-	#[test]
-	fn ident() {
-		let idents = "foo Bar baz4 _test let";
+    #[test]
+    fn ident() {
+        let idents = "foo Bar baz4 _test let";
 
-		let mut lexer = Lexer::new(idents);
+        let mut lexer = Lexer::new(idents);
 
-		assert_eq!(lexer.next_token().unwrap().ty, TokenType::Ident(String::from("foo")));
-		assert_eq!(lexer.next_token().unwrap().ty, TokenType::Ident(String::from("Bar")));
-		assert_eq!(lexer.next_token().unwrap().ty, TokenType::Ident(String::from("baz4")));
-		assert_eq!(lexer.next_token().unwrap().ty, TokenType::Ident(String::from("_test")));
-		assert_eq!(lexer.next_token().unwrap().ty, TokenType::Keyword(Keyword::Let));
-	}
+        assert_eq!(
+            lexer.next_token().unwrap().value,
+            Token::Ident(String::from("foo"))
+        );
+        assert_eq!(
+            lexer.next_token().unwrap().value,
+            Token::Ident(String::from("Bar"))
+        );
+        assert_eq!(
+            lexer.next_token().unwrap().value,
+            Token::Ident(String::from("baz4"))
+        );
+        assert_eq!(
+            lexer.next_token().unwrap().value,
+            Token::Ident(String::from("_test"))
+        );
+        assert_eq!(
+            lexer.next_token().unwrap().value,
+            Token::Keyword(Keyword::Let)
+        );
+    }
 }
