@@ -206,6 +206,15 @@ impl<'a> Lexer<'a> {
 
         keyword! {
             "let" => Keyword::Let,
+            "if" => Keyword::If,
+            "else" => Keyword::Else,
+            "loop" => Keyword::Loop,
+            "while" => Keyword::While,
+            "i32" => Keyword::I32,
+            "f32" => Keyword::F32,
+            "bool" => Keyword::Bool,
+            "str"=> Keyword::Str,
+            "void" => Keyword::Void,
         }
 
         None
@@ -248,6 +257,8 @@ impl<'a> Lexer<'a> {
             "-" => Symbol::Sub,
             "*" => Symbol::Mul,
             "/"=> Symbol::Div,
+            "!=" => Symbol::NotEq,
+            "!" => Symbol::Not,
             ">=" => Symbol::GtEq,
             "<=" => Symbol::LtEq,
             ">" => Symbol::Gt,

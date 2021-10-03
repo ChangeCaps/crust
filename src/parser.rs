@@ -1,11 +1,12 @@
 use thiserror::Error;
 
 use crate::{
-    expr::{BinOp, Expr, Literal},
+    expr::{BinOp, Block, Expr, Literal, UnaryOp},
     path::{Path, PathSegment},
     span::Spanned,
-    token::{Delim, Symbol, Token, TokenType},
+    token::{Delim, Keyword, Symbol, Token, TokenType},
     token_stream::TokenStream,
+    value::Type,
 };
 
 #[derive(Error, Debug)]
@@ -16,11 +17,14 @@ pub enum ParserError {
         found: Spanned<Token>,
     },
 
-    #[error("")]
+    #[error("expected one of the following '{expected:?}' but found {found}")]
     ExpectedOneTokens {
         expected: &'static [&'static TokenType],
         found: Spanned<Token>,
     },
+
+    #[error("invalid type '{0:?}'")]
+    InvalidType(Spanned<Token>),
 
     #[error("found unexpected token {0}")]
     Unexpected(Spanned<Token>),
@@ -36,6 +40,16 @@ fn expect(tokens: &mut TokenStream, token: &Token) -> ParserResult<()> {
             expected: token.ty(),
             found: tokens.next().clone(),
         })
+    }
+}
+
+fn parse_ident(tokens: &mut TokenStream) -> ParserResult<&String> {
+    let tok = tokens.next();
+
+    if let Token::Ident(ref ident) = tok.value {
+        Ok(ident)
+    } else {
+        Err(ParserError::Unexpected(tok.clone()))
     }
 }
 
@@ -62,6 +76,14 @@ fn parse_path(tokens: &mut TokenStream) -> ParserResult<Path> {
         } else {
             break Ok(Path { segments });
         }
+    }
+}
+
+fn parse_type(tokens: &mut TokenStream) -> ParserResult<Type> {
+    let tok = tokens.next();
+
+    match tok.value {
+        _ => Err(ParserError::InvalidType(tok.clone())),
     }
 }
 
@@ -96,6 +118,18 @@ fn parse_unary(tokens: &mut TokenStream) -> ParserResult<Expr> {
     let tok = tokens.peek();
 
     match tok.value {
+        Token::Symbol(symbol @ Symbol::And)
+        | Token::Symbol(symbol @ Symbol::Mul)
+        | Token::Symbol(symbol @ Symbol::Not) => {
+            tokens.consume();
+
+            let expr = parse_unary(tokens)?;
+
+            Ok(Expr::Unary(
+                UnaryOp::from_symbol(&symbol).unwrap(),
+                Box::new(expr),
+            ))
+        }
         _ => parse_term(tokens),
     }
 }
@@ -128,7 +162,27 @@ fn parse_additive(tokens: &mut TokenStream) -> ParserResult<Expr> {
         Token::Symbol(symbol @ Symbol::Add) | Token::Symbol(symbol @ Symbol::Sub) => {
             tokens.consume();
 
-            let rhs = parse_factor(tokens)?;
+            let rhs = parse_additive(tokens)?;
+
+            Ok(Expr::Binary(
+                Box::new(lhs),
+                BinOp::from_symbol(&symbol).unwrap(),
+                Box::new(rhs),
+            ))
+        }
+        _ => Ok(lhs),
+    }
+}
+
+fn parse_comparative(tokens: &mut TokenStream) -> ParserResult<Expr> {
+    let lhs = parse_additive(tokens)?;
+    let tok = tokens.peek();
+
+    match tok.value {
+        Token::Symbol(symbol @ Symbol::EqEq) => {
+            tokens.consume();
+
+            let rhs = parse_comparative(tokens)?;
 
             Ok(Expr::Binary(
                 Box::new(lhs),
@@ -141,7 +195,7 @@ fn parse_additive(tokens: &mut TokenStream) -> ParserResult<Expr> {
 }
 
 fn parse_assign(tokens: &mut TokenStream) -> ParserResult<Expr> {
-    let lhs = parse_additive(tokens)?;
+    let lhs = parse_comparative(tokens)?;
     let tok = tokens.peek();
 
     match tok.value {
@@ -152,12 +206,136 @@ fn parse_assign(tokens: &mut TokenStream) -> ParserResult<Expr> {
 
             Ok(Expr::Assign(Box::new(lhs), Box::new(rhs)))
         }
+        Token::Symbol(symbol @ Symbol::AddEq)
+        | Token::Symbol(symbol @ Symbol::SubEq)
+        | Token::Symbol(symbol @ Symbol::MulEq)
+        | Token::Symbol(symbol @ Symbol::DivEq) => {
+            tokens.consume();
+
+            let rhs = parse_assign(tokens)?;
+
+            Ok(Expr::Binary(
+                Box::new(lhs),
+                BinOp::from_symbol(&symbol).unwrap(),
+                Box::new(rhs),
+            ))
+        }
         _ => Ok(lhs),
     }
 }
 
-fn parse_expr(tokens: &mut TokenStream) -> ParserResult<Expr> {
+pub fn parse_expr(tokens: &mut TokenStream) -> ParserResult<Expr> {
     parse_assign(tokens)
+}
+
+fn parse_let(tokens: &mut TokenStream) -> ParserResult<Expr> {
+    expect(tokens, &Token::Keyword(Keyword::Let))?;
+
+    let ident = Path::ident(parse_ident(tokens)?);
+
+    expect(tokens, &Token::Symbol(Symbol::Eq))?;
+
+    let value = parse_expr(tokens)?;
+
+    expect(tokens, &Token::Symbol(Symbol::SemiColon))?;
+
+    Ok(Expr::Let(ident, Box::new(value)))
+}
+
+fn parse_block_stmt(tokens: &mut TokenStream) -> ParserResult<Expr> {
+    expect(tokens, &Token::Symbol(Symbol::Open(Delim::Brace)))?;
+
+    let mut exprs = Vec::new();
+
+    loop {
+        let tok = tokens.peek();
+
+        match tok.value {
+            Token::Symbol(Symbol::Close(Delim::Brace)) => break,
+            _ => exprs.push(parse_stmt(tokens)?),
+        }
+    }
+
+    expect(tokens, &Token::Symbol(Symbol::Close(Delim::Brace)))?;
+
+    Ok(Expr::Block(Block { exprs }))
+}
+
+fn parse_if_stmt(tokens: &mut TokenStream) -> ParserResult<Expr> {
+    expect(tokens, &Token::Keyword(Keyword::If))?;
+
+    let condition = parse_expr(tokens)?;
+
+    let if_true = parse_block_stmt(tokens)?;
+
+    let tok = tokens.peek();
+
+    match tok.value {
+        Token::Keyword(Keyword::Else) => {
+            tokens.consume();
+
+            let tok = tokens.peek();
+
+            match tok.value {
+                Token::Keyword(Keyword::If) => Ok(Expr::If(
+                    Box::new(condition),
+                    Box::new(if_true),
+                    Some(Box::new(parse_if_stmt(tokens)?)),
+                )),
+                _ => Ok(Expr::If(
+                    Box::new(condition),
+                    Box::new(if_true),
+                    Some(Box::new(parse_block_stmt(tokens)?)),
+                )),
+            }
+        }
+        _ => Ok(Expr::If(Box::new(condition), Box::new(if_true), None)),
+    }
+}
+
+fn parse_while_stmt(tokens: &mut TokenStream) -> ParserResult<Expr> {
+    expect(tokens, &Token::Keyword(Keyword::While))?;
+
+    let condition = parse_expr(tokens)?;
+
+    let block = parse_block_stmt(tokens)?;
+
+    Ok(Expr::While(Box::new(condition), Box::new(block)))
+}
+
+pub fn parse_stmt(tokens: &mut TokenStream) -> ParserResult<Expr> {
+    let tok = tokens.peek();
+
+    match tok.value {
+        Token::Keyword(Keyword::Let) => parse_let(tokens),
+        Token::Keyword(Keyword::If) => parse_if_stmt(tokens),
+        Token::Keyword(Keyword::While) => parse_while_stmt(tokens),
+        Token::Symbol(Symbol::Open(Delim::Brace)) => parse_block_stmt(tokens),
+        Token::Symbol(Symbol::SemiColon) => {
+            tokens.consume();
+
+            Ok(Expr::Nop)
+        }
+        _ => {
+            let expr = parse_expr(tokens)?;
+
+            expect(tokens, &Token::Symbol(Symbol::SemiColon))?;
+
+            Ok(expr)
+        }
+    }
+}
+
+pub fn parse_program(tokens: &mut TokenStream) -> ParserResult<Block> {
+    let mut exprs = Vec::new();
+
+    loop {
+        if let Token::Eof = tokens.peek().value {
+            break Ok(Block { exprs });
+        } else {
+            exprs.push(parse_stmt(tokens)?);
+        }
+    }
 }
 
 #[cfg(test)]

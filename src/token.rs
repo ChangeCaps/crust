@@ -115,6 +115,8 @@ pub enum Symbol {
     Sub,
     Mul,
     Div,
+    NotEq,
+    Not,
     GtEq,
     LtEq,
     Gt,
@@ -145,6 +147,8 @@ impl std::fmt::Display for Symbol {
             Self::Sub => write!(f, "-"),
             Self::Mul => write!(f, "*"),
             Self::Div => write!(f, "/"),
+            Self::NotEq => write!(f, "!="),
+            Self::Not => write!(f, "!"),
             Self::GtEq => write!(f, ">="),
             Self::LtEq => write!(f, "<="),
             Self::Gt => write!(f, ">"),
@@ -162,13 +166,35 @@ impl std::fmt::Display for Symbol {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Keyword {
     Let,
+    If,
+    Else,
+    Loop,
+    While,
+    I32,
+    F32,
+    Bool,
+    Str,
+    Void,
 }
 
 impl std::fmt::Display for Keyword {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Let => write!(f, "let"),
-        }
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Let => "let",
+                Self::If => "if",
+                Self::Else => "else",
+                Self::Loop => "loop",
+                Self::While => "while",
+                Self::I32 => "i32",
+                Self::F32 => "f32",
+                Self::Bool => "bool",
+                Self::Str => "str",
+                Self::Void => "void",
+            }
+        )
     }
 }

@@ -17,6 +17,22 @@ pub struct Path {
     pub segments: Vec<PathSegment>,
 }
 
+impl Path {
+    #[inline]
+    pub fn ident(segment: impl Into<String>) -> Self {
+        Self {
+            segments: vec![PathSegment::Ident(segment.into())],
+        }
+    }
+
+    #[inline]
+    pub fn join(&self, segment: impl Into<String>) -> Self {
+        let mut new = self.clone();
+        new.segments.push(PathSegment::Ident(segment.into()));
+        new
+    }
+}
+
 impl std::fmt::Display for Path {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
