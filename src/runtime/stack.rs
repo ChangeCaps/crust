@@ -103,10 +103,10 @@ impl std::fmt::Display for Stack {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (i, chunk) in self.data.chunks(4).enumerate() {
-            write!(f, "{:04}:  ", i * 4)?;
+            write!(f, "{:04}: ", i * 4)?;
 
             for byte in chunk {
-                write!(f, "{:02X}", byte)?;
+                write!(f, " {:02X}", byte)?;
             }
 
             writeln!(f)?;
