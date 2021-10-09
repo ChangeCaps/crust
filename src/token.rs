@@ -2,6 +2,8 @@ use std::borrow::Cow;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
+    /// Comment
+    Comment(String),
     /// Identifier and sequence of text that isn't a keyword.
     Ident(String),
     /// Integer, see [`IntegerFormat`].
@@ -18,6 +20,7 @@ impl std::fmt::Display for Token {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Comment(comment) => write!(f, "//{}", comment),
             Self::Ident(ident) => write!(f, "{}", ident),
             Self::Integer(int, format) => match format {
                 IntegerFormat::Binary => write!(f, "{:b}", int),
@@ -41,6 +44,7 @@ impl Token {
     #[inline]
     pub fn ty(&self) -> TokenType {
         match self {
+            Self::Comment(_) => TokenType::Comment,
             Self::Ident(ident) => TokenType::SpecificIdent(ident.clone().into()),
             Self::Integer(int, _format) => TokenType::SpecificInteger(*int),
             Self::Symbol(symbol) => TokenType::SpecificSymbol(*symbol),
@@ -52,6 +56,7 @@ impl Token {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
+    Comment,
     Ident,
     SpecificIdent(Cow<'static, str>),
     Integer,
@@ -67,6 +72,7 @@ impl std::fmt::Display for TokenType {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Comment => write!(f, "{{comment}}"),
             Self::Ident => write!(f, "{{ident}}"),
             Self::SpecificIdent(ident) => write!(f, "{}", ident),
             Self::Integer => write!(f, "{{integer}}"),
@@ -101,6 +107,7 @@ pub enum Symbol {
     ColonColon,
     Colon,
     SemiColon,
+    Arrow,
     EqEq,
     Eq,
     AndAnd,
@@ -133,6 +140,7 @@ impl std::fmt::Display for Symbol {
             Self::ColonColon => write!(f, "::"),
             Self::Colon => write!(f, ":"),
             Self::SemiColon => write!(f, ";"),
+            Self::Arrow => write!(f, "->"),
             Self::EqEq => write!(f, "=="),
             Self::Eq => write!(f, "="),
             Self::AndAnd => write!(f, "&&"),
@@ -175,6 +183,13 @@ pub enum Keyword {
     Bool,
     Str,
     Void,
+    True,
+    False,
+    Fn,
+    Return,
+    Mod,
+    Use,
+    Super,
 }
 
 impl std::fmt::Display for Keyword {
@@ -194,6 +209,13 @@ impl std::fmt::Display for Keyword {
                 Self::Bool => "bool",
                 Self::Str => "str",
                 Self::Void => "void",
+                Self::True => "true",
+                Self::False => "false",
+                Self::Fn => "fn",
+                Self::Return => "return",
+                Self::Mod => "mod",
+                Self::Use => "use",
+                Self::Super => "super",
             }
         )
     }

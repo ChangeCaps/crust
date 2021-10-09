@@ -1,6 +1,8 @@
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PathSegment {
     Ident(String),
+    Super,
+    WildCard,
 }
 
 impl std::fmt::Display for PathSegment {
@@ -8,11 +10,13 @@ impl std::fmt::Display for PathSegment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Ident(ident) => ident.fmt(f),
+            Self::Super => write!(f, "super"),
+            Self::WildCard => write!(f, "*"),
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
 pub struct Path {
     pub segments: Vec<PathSegment>,
 }
@@ -26,10 +30,40 @@ impl Path {
     }
 
     #[inline]
-    pub fn join(&self, segment: impl Into<String>) -> Self {
+    pub fn join(&self, segment: impl Into<PathSegment>) -> Self {
         let mut new = self.clone();
-        new.segments.push(PathSegment::Ident(segment.into()));
+        new.segments.push(segment.into());
         new
+    }
+
+    #[inline]
+    pub fn combine(&self, other: &Self) -> Self {
+        let mut path = self.clone();
+
+        path.segments.append(&mut other.segments.clone());
+
+        path
+    }
+}
+
+impl Into<PathSegment> for &str {
+    #[inline]
+    fn into(self) -> PathSegment {
+        PathSegment::Ident(self.into())
+    }
+}
+
+impl Into<PathSegment> for &String {
+    #[inline]
+    fn into(self) -> PathSegment {
+        PathSegment::Ident(self.into())
+    }
+}
+
+impl Into<PathSegment> for String {
+    #[inline]
+    fn into(self) -> PathSegment {
+        PathSegment::Ident(self)
     }
 }
 

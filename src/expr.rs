@@ -1,11 +1,15 @@
 use crate::{
+    compiler::Type,
+    decl::Decl,
     path::Path,
     token::{IntegerFormat, Symbol},
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Literal {
     Integer(i64, IntegerFormat),
+    Bool(bool),
+    Void,
 }
 
 impl std::fmt::Display for Literal {
@@ -23,11 +27,13 @@ impl std::fmt::Display for Literal {
                     }
                 }
             },
+            Self::Bool(b) => write!(f, "{}", b),
+            Self::Void => write!(f, "void"),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum UnaryOp {
     Ref,
     Deref,
@@ -70,6 +76,7 @@ pub enum BinOp {
     SubEq,
     MulEq,
     DivEq,
+    NotEq,
     Eq,
 }
 
@@ -85,9 +92,21 @@ impl BinOp {
             Symbol::SubEq => Self::SubEq,
             Symbol::MulEq => Self::MulEq,
             Symbol::DivEq => Self::DivEq,
+            Symbol::NotEq => Self::NotEq,
             Symbol::EqEq => Self::Eq,
             _ => return None,
         })
+    }
+
+    #[inline]
+    pub fn is_assign(&self) -> bool {
+        match self {
+            Self::AddEq => true,
+            Self::SubEq => true,
+            Self::MulEq => true,
+            Self::DivEq => true,
+            _ => false,
+        }
     }
 }
 
@@ -103,14 +122,16 @@ impl std::fmt::Display for BinOp {
             Self::SubEq => write!(f, "-="),
             Self::MulEq => write!(f, "*="),
             Self::DivEq => write!(f, "/="),
+            Self::NotEq => write!(f, "!="),
             Self::Eq => write!(f, "=="),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Nop,
+    Comment(String),
     Literal(Literal),
     Paren(Box<Expr>),
     Path(Path),
@@ -118,9 +139,12 @@ pub enum Expr {
     Assign(Box<Expr>, Box<Expr>),
     Unary(UnaryOp, Box<Expr>),
     Binary(Box<Expr>, BinOp, Box<Expr>),
+    Cast(Box<Expr>, Type),
     Block(Block),
     If(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
     While(Box<Expr>, Box<Expr>),
+    Call(Box<Expr>, Vec<Expr>),
+    Return(Box<Expr>),
 }
 
 impl std::fmt::Display for Expr {
@@ -128,6 +152,7 @@ impl std::fmt::Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Nop => write!(f, ""),
+            Self::Comment(comment) => write!(f, "//{}", comment),
             Self::Literal(lit) => lit.fmt(f),
             Self::Paren(expr) => write!(f, "({})", expr),
             Self::Let(path, expr) => write!(f, "let {} = {};\n", path, expr),
@@ -135,6 +160,7 @@ impl std::fmt::Display for Expr {
             Self::Assign(lhs, rhs) => write!(f, "{} = {}", lhs, rhs),
             Self::Unary(op, expr) => write!(f, "{}{}", op, expr),
             Self::Binary(lhs, op, rhs) => write!(f, "{} {} {}", lhs, op, rhs),
+            Self::Cast(val, ty) => write!(f, "<{:?}>({})", ty, val),
             Self::Block(block) => {
                 write!(f, "{{\n")?;
 
@@ -156,11 +182,22 @@ impl std::fmt::Display for Expr {
             Self::While(condition, block) => {
                 write!(f, "while {} {{\n {} \n}}\n", condition, block)
             }
+            Self::Call(function, args) => {
+                write!(f, "{}({:?})", function, args)
+            }
+            Self::Return(val) => write!(f, "return {};", val),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+pub enum DeclOrExpr {
+    Decl(Decl),
+    Expr(Expr),
+}
+
+#[derive(Clone, Debug)]
 pub struct Block {
+    pub decls: Vec<Decl>,
     pub exprs: Vec<Expr>,
 }

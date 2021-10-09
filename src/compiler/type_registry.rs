@@ -1,13 +1,11 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap};
 
-use crate::{value::Type, Align, Size};
-
-use super::{CompilerError, CompilerResult};
+use super::{CompilerError, CompilerResult, Size, Type};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeInfo {
     pub size: Option<Size>,
-    pub align: usize,
+    pub align: u64,
 }
 
 #[derive(Default)]
@@ -52,7 +50,7 @@ impl TypeRegistry {
             },
         );
         self.init(
-            Type::Unit,
+            Type::Void,
             TypeInfo {
                 size: Some(0),
                 align: 4,
@@ -60,7 +58,7 @@ impl TypeRegistry {
         );
     }
 
-    pub fn get_size_align(&mut self, ty: &Type) -> CompilerResult<(Size, Align)> {
+    pub fn get_size_align(&mut self, ty: &Type) -> CompilerResult<(Size, u64)> {
         let info = self.get(ty)?;
         Ok((
             info.size.ok_or_else(|| CompilerError::UnsizedStackPush)?,
@@ -90,6 +88,17 @@ impl TypeRegistry {
                 );
 
                 Ok(self.types.get(inner).unwrap())
+            }
+            Type::Func(_, _) => {
+                self.init(
+                    ty.clone(),
+                    TypeInfo {
+                        size: Some(4),
+                        align: 4,
+                    },
+                );
+
+                Ok(self.types.get(ty).unwrap())
             }
             _ => Err(CompilerError::TypeUndefined(ty.clone())),
         }

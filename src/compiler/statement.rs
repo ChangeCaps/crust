@@ -1,102 +1,162 @@
-use super::EntryPoint;
-use crate::{Address, Size};
+use super::{Align, Compiler, EntryPoint, Register, Size, StackSlot};
 
-#[derive(Clone, Debug)]
-pub enum Statement {
-    /// Does nothing.
-    Nop,
-    /// Initializes ``target`` with bytes of ``value``
-    Init { target: Address, value: Vec<u8> },
-    /// Stores ``lhs + rhs`` in ``target``.
-    AddI32 {
-        target: Address,
-        lhs: Address,
-        rhs: Address,
-    },
-    /// Stores ``-value`` in ``target``.
-    Neg { target: Address, value: Address },
-    /// Copies ``value`` into ``target``.
-    Copy {
-        target: Address,
-        value: Address,
-        size: Size,
-    },
-    /// Reads gloabl address of ``target`` into ``dst``.
-    AddressOff { dst: Address, target: Address },
-    /// Reads ``*ptr`` into ``target``.
-    Read {
-        target: Address,
-        ptr: Address,
-        size: Size,
-    },
-    /// Writes ``value`` into ``*target``.
-    Write {
-        target: Address,
-        value: Address,
-        size: Size,
-    },
-    /// Stores ``lhs == rhs`` in ``target``.
-    Eq {
-        target: Address,
-        lhs: Address,
-        rhs: Address,
-        size: Size,
-    },
-    /// Stores ``!tgt`` in ``dst``.
-    Not { dst: Address, tgt: Address },
-    /// Jumps to ``entry_point`` if ``value == 0``.
-    ConditionalJump {
-        entry_point: EntryPoint,
-        value: Address,
-    },
-    /// Jumps to ``entry_point``.
-    Jump { entry_point: EntryPoint },
-    /// Calls ``function`` with ``parameters`` and stores result in ``target``.
-    Call {
-        target: Address,
-        function: EntryPoint,
-        parameters: Vec<Address>,
-    },
-    /// Returns from function with ``target``.
-    Return { target: Address },
+macro_rules! statement {
+    ( $( $stmt:ident { $( $name:ident : $ty:ty $( => $expr:expr )? , )* } $(-> $fn:ident)? , )* ) => {
+        #[derive(Clone, Debug)]
+        pub enum IRStatement {
+            $(
+                $stmt { $($name: $ty),* },
+            )*
+        }
+
+        impl std::fmt::Display for IRStatement {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(
+                        Self::$stmt { $($name),* } => {
+                            write!(f, "{}", stringify!($stmt).to_lowercase())?;
+
+                            $(
+                                #[allow(unused)]
+                                let val = std::iter::once($name);
+
+                                $(
+                                    let val = $expr;
+                                )?
+
+                                for val in val {
+                                    write!(f, " {}", val)?;
+                                }
+                            )*
+                        },
+                    )*
+                }
+
+                Ok(())
+            }
+        }
+
+        impl IRStatement {
+            #[inline]
+            pub fn compile<C: Compiler>(&self, compiler: &mut C) {
+                match self {
+                    $(
+                        Self::$stmt { $($name),* } => {
+                            #[allow(unused)]
+                            let mut f = |f: fn(&mut C, $($ty),*)| {
+                                f(compiler, $($name.clone()),*);
+                            };
+
+                            $(f(C::$fn);)?
+                        },
+                    )*
+                }
+            }
+        }
+    };
 }
 
-impl Statement {
-    pub fn dump(&self) -> String {
-        match self {
-            Self::Nop => format!("nop"),
-            Self::Init { target, value } => format!("init {} {:?}", target, value),
-            Self::AddI32 { target, lhs, rhs } => format!("add {} {} {}", target, lhs, rhs),
-            Self::Neg { target, value } => format!("neg {} {}", target, value),
-            Self::Copy {
-                target,
-                value,
-                size,
-            } => format!("copy {} {} {}", target, value, size),
-            Self::AddressOff { dst, target } => format!("ptr {} {}", dst, target),
-            Self::Read { target, ptr, size } => format!("read {} {} {}", target, ptr, size),
-            Self::Write {
-                target,
-                value,
-                size,
-            } => format!("write {} {} {}", target, value, size),
-            Self::Eq {
-                target,
-                lhs,
-                rhs,
-                size,
-            } => format!("eq {} {} {} {}", target, lhs, rhs, size),
-            Self::Not { dst, tgt } => format!("not {} {}", dst, tgt),
-            Self::ConditionalJump { entry_point, value } => {
-                format!("cjmp {} {}", entry_point, value)
-            }
-            Self::Jump { entry_point } => format!("jmp {}", entry_point),
-            Self::Call {
-                target,
-                function,
-                parameters,
-            } => format!("call {} {} {:?}", target, function, parameters),
-            Self::Return { target } => format!("return {}", target),
-        }
-    }
+statement! {
+    Nop {},
+
+    /* memory */
+
+    Push {
+        src: Register,
+        slot: Option<StackSlot> => slot.iter(),
+    } -> push,
+    Pop {
+        dst: Option<Register> => dst.iter(),
+    } -> pop,
+    Mov {
+        dst: Register,
+        src: Register,
+    } -> mov,
+    Copy {
+        dst: Register,
+        src: Register,
+        size: Size,
+    } -> copy,
+    Read {
+        dst: Register,
+        src: Register,
+    } -> read,
+    Store {
+        dst: Register,
+        src: Register,
+    } -> store,
+    StackPtr {
+        dst: Register,
+        src: StackSlot,
+    } -> stack_ptr,
+    FuncPtr {
+        dst: Register,
+        src: EntryPoint,
+    } -> func_ptr,
+    Zero {
+        dst: Register,
+    } -> zero,
+
+    /* boolean logic */
+
+    ConstBool {
+        dst: Register,
+        src: bool,
+    } -> const_bool,
+    Not {
+        dst: Register,
+        src: Register,
+    } -> not,
+    Eq {
+        dst: Register,
+        lhs: Register,
+        rhs: Register,
+    } -> eq,
+    NotEq {
+        dst: Register,
+        lhs: Register,
+        rhs: Register,
+    } -> not_eq,
+
+    /* i32 */
+
+    ConstI32 {
+        dst: Register,
+        src: i32,
+    } -> const_i32,
+    NegI32 {
+        dst: Register,
+        src: Register,
+    } -> neg_i32,
+    AddI32 {
+        dst: Register,
+        lhs: Register,
+        rhs: Register,
+    } -> add_i32,
+    SubI32 {
+        dst: Register,
+        lhs: Register,
+        rhs: Register,
+    } -> sub_i32,
+
+    /* control flow */
+
+    Jmp {
+        dst: EntryPoint,
+    } -> jmp,
+    JmpNZ {
+        dst: EntryPoint,
+        src: Register,
+    } -> jmp_nz,
+    Call {
+        dst: Register,
+        func: Register,
+        args: Vec<Register> => args.iter(),
+    } -> call,
+    Ret {
+        src: Register,
+    } -> ret,
+    Exit {
+        src: Register,
+    } -> exit,
 }

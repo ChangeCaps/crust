@@ -1,4 +1,4 @@
-use crate::{compiler::EntryPoint, Address, Size};
+use crate::compiler::{Address, Size};
 
 pub type InstructionIndex = usize;
 
@@ -9,6 +9,13 @@ pub enum Instruction {
         src: Address,
         size: Size,
     },
+    Push {
+        dst: Address,
+        size: Size,
+    },
+    Pop {
+        dst: Address,
+    },
     Mov {
         dst: Address,
         src: Address,
@@ -16,7 +23,7 @@ pub enum Instruction {
     },
     Ptr {
         dst: Address,
-        tgt: Address,
+        tgt: i64,
     },
     Read {
         dst: Address,
@@ -27,6 +34,10 @@ pub enum Instruction {
         ptr: Address,
         src: Address,
         size: Size,
+    },
+    ConstU32 {
+        dst: Address,
+        src: u32,
     },
     AddI32 {
         dst: Address,
@@ -50,4 +61,9 @@ pub enum Instruction {
     Jmp {
         dst: InstructionIndex,
     },
+    Call {
+        func: Address,
+        args: Vec<Address>,
+    },
+    Ret,
 }

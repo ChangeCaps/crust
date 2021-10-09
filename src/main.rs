@@ -1,43 +1,65 @@
 use std::fs::read_to_string;
 
 use crust::{
-    compiler::{
-        targets::{self, RuntimeCompiler},
-        Compilation, CompilationContext, EntryPoint,
-    },
+    compiler::{targets::RuntimeCompiler, Address, Compilation, Module},
     parser,
-    path::Path,
     runtime::Runtime,
     token_stream::TokenStream,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let source = read_to_string("test.cst")?;
+    let source = read_to_string("test.cr")?;
 
     let mut tokens = TokenStream::new(&source)?;
     let block = parser::parse_program(&mut tokens)?;
 
-    let mut compilation = Compilation::new();
-    let mut ctx = CompilationContext::new(EntryPoint::Main);
+    let mut module = Module::default();
 
-    compilation.compile_block(&mut ctx, &block)?;
+    for decl in &block.decls {
+        module.add_decl(decl);
+    }
 
-    compilation.entry_points.insert(EntryPoint::Main, 0);
+    let (compilation, program) =
+        Compilation::compile_program(&mut RuntimeCompiler::default(), &block, &module)?;
 
     compilation.dump();
 
-    let program = compilation.compile(&mut RuntimeCompiler::default());
-
-    let mut runtime = Runtime::new(64);
+    let mut runtime = Runtime::new(256);
 
     runtime.run_program(&program)?;
 
-    println!("{}", runtime.stack);
+    println!("\nEAX:");
+    println!("{}", runtime.stack.display_range(Address(0)..Address(4)));
 
-    let x_address = ctx.get(&Path::ident("x")).unwrap().address + program.data.len();
-    let x = runtime.stack.read_i32(x_address)?;
+    println!("EBX:");
+    println!("{}", runtime.stack.display_range(Address(4)..Address(8)));
 
-    println!("x = {}", x);
+    println!("RET:");
+    println!("{}", runtime.stack.display_range(Address(8)..Address(12)));
+
+    println!("Generic registers:");
+    println!(
+        "{}",
+        runtime
+            .stack
+            .display_range(Address(12)..program.data_address)
+    );
+
+    println!("Constant data:");
+    println!(
+        "{}",
+        runtime
+            .stack
+            .display_range(program.data_address..program.stack_offset)
+    );
+
+    println!("Stack:");
+    println!(
+        "{}",
+        runtime
+            .stack
+            .display_range(program.stack_offset..runtime.stack.end())
+    );
 
     Ok(())
 }

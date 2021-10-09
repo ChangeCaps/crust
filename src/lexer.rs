@@ -215,6 +215,13 @@ impl<'a> Lexer<'a> {
             "bool" => Keyword::Bool,
             "str"=> Keyword::Str,
             "void" => Keyword::Void,
+            "true" => Keyword::True,
+            "false" => Keyword::False,
+            "fn" => Keyword::Fn,
+            "return" => Keyword::Return,
+            "mod" => Keyword::Mod,
+            "use" => Keyword::Use,
+            "super" => Keyword::Super,
         }
 
         None
@@ -243,6 +250,7 @@ impl<'a> Lexer<'a> {
             "::" => Symbol::ColonColon,
             ":" => Symbol::Colon,
             ";" => Symbol::SemiColon,
+            "->" => Symbol::Arrow,
             "==" => Symbol::EqEq,
             "=" => Symbol::Eq,
             "&&" => Symbol::AndAnd,
@@ -290,6 +298,26 @@ impl<'a> Lexer<'a> {
                     length: 0,
                 },
                 value: Token::Eof,
+            });
+        }
+
+        if self.remaining().unwrap().starts_with("//") {
+            let comment = if let Some(n) = self.remaining().unwrap().find('\n') {
+                String::from(self.remaining().unwrap().split_at(n).0)
+            } else {
+                String::from(self.remaining().unwrap())
+            };
+
+            self.offset += comment.len() + 2;
+
+            return Ok(Spanned {
+                span: Span {
+                    line,
+                    column,
+                    offset,
+                    length: comment.len() + 2,
+                },
+                value: Token::Comment(comment),
             });
         }
 

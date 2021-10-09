@@ -1,6 +1,7 @@
-use crate::{Address, Size};
+use std::ops::Range;
 
 use super::{RuntimeError, RuntimeResult};
+use crate::compiler::{Address, Size};
 
 pub struct Stack {
     data: Vec<u8>,
@@ -25,18 +26,24 @@ impl Stack {
     }
 
     #[inline]
-    pub fn copy(&mut self, dst: Address, src: Address, size: Size) -> RuntimeResult<()> {
-        let upper_bound = Address::max(src, dst) + size;
+    pub fn end(&self) -> Address {
+        Address(self.data.len() as u64)
+    }
 
-        if upper_bound > self.data.len() {
+    #[inline]
+    pub fn copy(&mut self, dst: Address, src: Address, size: Size) -> RuntimeResult<()> {
+        let upper_bound = u64::max(src.0, dst.0) + size;
+
+        if upper_bound > self.data.len() as u64 {
             if self.allow_resize {
-                self.data.resize(upper_bound, 0);
+                self.data.resize(upper_bound as usize, 0);
             } else {
                 return Err(RuntimeError::OutOfBounds);
             }
         }
 
-        self.data.copy_within(src..src + size, dst);
+        self.data
+            .copy_within(src.0 as usize..(src.0 + size) as usize, dst.0 as usize);
 
         Ok(())
     }
@@ -45,27 +52,27 @@ impl Stack {
     pub fn write(&mut self, address: Address, data: &[u8]) -> RuntimeResult<()> {
         let size = data.len();
 
-        let upper_bound = address + size;
+        let upper_bound = address.0 + size as u64;
 
-        if upper_bound > self.data.len() {
+        if upper_bound > self.data.len() as u64 {
             if self.allow_resize {
-                self.data.resize(upper_bound, 0);
+                self.data.resize(upper_bound as usize, 0);
             } else {
                 return Err(RuntimeError::OutOfBounds);
             }
         }
 
-        self.data[address..upper_bound].copy_from_slice(data);
+        self.data[address.0 as usize..upper_bound as usize].copy_from_slice(data);
 
         Ok(())
     }
 
     #[inline]
     pub fn read(&self, address: Address, size: Size) -> RuntimeResult<&[u8]> {
-        let upper_bound = address + size;
+        let upper_bound = address.0 + size;
 
-        if upper_bound <= self.data.len() {
-            Ok(&self.data[address..upper_bound])
+        if upper_bound <= self.data.len() as u64 {
+            Ok(&self.data[address.0 as usize..upper_bound as usize])
         } else {
             Err(RuntimeError::OutOfBounds)
         }
@@ -97,13 +104,43 @@ impl Stack {
     pub fn into_data(self) -> Vec<u8> {
         self.data
     }
+
+    #[inline]
+    pub fn display_range(&self, range: Range<Address>) -> DisplayStack<'_> {
+        DisplayStack { stack: self, range }
+    }
 }
 
 impl std::fmt::Display for Stack {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (i, chunk) in self.data.chunks(4).enumerate() {
-            write!(f, "{:04}: ", i * 4)?;
+            write!(f, "{:08X}: ", i * 4)?;
+
+            for byte in chunk {
+                write!(f, " {:02X}", byte)?;
+            }
+
+            writeln!(f)?;
+        }
+
+        Ok(())
+    }
+}
+
+pub struct DisplayStack<'a> {
+    stack: &'a Stack,
+    range: Range<Address>,
+}
+
+impl std::fmt::Display for DisplayStack<'_> {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, chunk) in self.stack.data[self.range.start.0 as usize..self.range.end.0 as usize]
+            .chunks(4)
+            .enumerate()
+        {
+            write!(f, "{:08X}: ", i * 4 + self.range.start.0 as usize)?;
 
             for byte in chunk {
                 write!(f, " {:02X}", byte)?;
