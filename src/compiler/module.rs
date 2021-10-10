@@ -5,7 +5,7 @@ use crate::{
     path::{Path, PathSegment},
 };
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Module {
     pub modules: HashMap<String, Module>,
     pub uses: HashMap<String, Path>,
@@ -35,7 +35,7 @@ impl Module {
                 }
             }
         }
-    } 
+    }
 
     #[inline]
     pub fn canonicalize(&self, path: &Path) -> Option<Path> {
@@ -56,12 +56,12 @@ impl Module {
 
                         canonicalized.segments.push(segment.clone())
                     }
-                },
+                }
                 PathSegment::Super => {
                     canonicalized.segments.pop();
-                },
-                _ => {},
-            } 
+                }
+                _ => {}
+            }
         }
 
         match path.segments.last().unwrap() {
@@ -69,7 +69,9 @@ impl Module {
                 if let Some(path) = module.uses.get(ident) {
                     self.canonicalize(path)
                 } else {
-                    canonicalized.segments.push(PathSegment::Ident(ident.clone()));
+                    canonicalized
+                        .segments
+                        .push(PathSegment::Ident(ident.clone()));
 
                     Some(canonicalized)
                 }
@@ -88,7 +90,7 @@ impl Module {
                 PathSegment::Ident(ident) => {
                     module = self.modules.get(ident)?;
                 }
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         }
 

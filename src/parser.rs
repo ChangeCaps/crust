@@ -1,5 +1,3 @@
-use std::ascii::AsciiExt;
-
 use thiserror::Error;
 
 use crate::{
@@ -195,7 +193,11 @@ fn parse_function_params(tokens: &mut TokenStream) -> ParserResult<Vec<Expr>> {
         let tok = tokens.peek();
 
         match tok.value {
-            Token::Symbol(Symbol::Close(Delim::Paren)) => break Ok(params),
+            Token::Symbol(Symbol::Close(Delim::Paren)) => {
+                tokens.consume();
+
+                break Ok(params);
+            }
             _ => {
                 params.push(parse_expr(tokens)?);
 

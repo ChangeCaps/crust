@@ -14,7 +14,11 @@ mod math {
 		let out = 0;
 
 		if x == 1 {
-			out = 1;
+			fn ONE() -> i32 {
+				return 1;
+			}
+
+			out = ONE();
 		} else {
 			out = mul(x, factorial(x - 1));
 		}

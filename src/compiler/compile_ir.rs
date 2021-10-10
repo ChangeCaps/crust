@@ -439,7 +439,10 @@ impl<'a> Scope<'a> {
 
                     self.push(IRStatement::FuncPtr {
                         dst: register,
-                        src: EntryPoint::Function(self.module.canonicalize(&func_path).unwrap(), function.args.len() as u64),
+                        src: EntryPoint::Function(
+                            self.module.canonicalize(&func_path).unwrap(),
+                            function.args.len() as u64,
+                        ),
                     });
 
                     let args = function.args.iter().map(|arg| arg.ty.clone()).collect();
@@ -768,6 +771,8 @@ impl<'a> Scope<'a> {
                     scope.compile_expr(true_expr)?;
                     scope.end()?;
 
+                    let returned = scope.returned;
+
                     let end_point = self.next_entry_point();
 
                     self.push(IRStatement::Jmp {
@@ -779,6 +784,8 @@ impl<'a> Scope<'a> {
                     let mut scope = self.sub_scope();
                     scope.compile_expr(false_expr)?;
                     scope.end()?;
+
+                    self.returned = scope.returned && returned;
 
                     self.insert_entry_point(end_point);
 
@@ -809,9 +816,19 @@ impl<'a> Scope<'a> {
                 }
             }
             Expr::Block(block) => {
-                for expr in &block.exprs {
-                    self.compile_expr(expr)?;
+                let mut module = self.module.clone();
+
+                for decl in &block.decls {
+                    module.add_decl(decl);
                 }
+
+                let mut scope = self.sub_scope();
+
+                for expr in &block.exprs {
+                    scope.compile_expr(expr)?;
+                }
+
+                self.returned |= scope.returned;
 
                 Ok(Value::unused())
             }
